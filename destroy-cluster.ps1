@@ -24,6 +24,8 @@ function Write-Warn { param([string]$Message) Write-Host "   $Message" -Foregrou
 
 Write-Step 'Stopping and removing VMs'
 
+$defaultVhdPath = (Get-VMHost).VirtualHardDiskPath
+
 foreach ($name in $VmNames) {
     $vm = Get-VM -Name $name -ErrorAction SilentlyContinue
     if (-not $vm) {
@@ -32,7 +34,13 @@ foreach ($name in $VmNames) {
     }
 
     # Collect VHD paths before removing the VM
-    $vhdPaths = (Get-VMHardDiskDrive -VMName $name).Path
+    $vhdPaths = @()
+    Get-VMHardDiskDrive -VMName $name | ForEach-Object {
+        if ($_.Path) { $vhdPaths += $_.Path }
+    }
+    # Also include the expected path from create-cluster.ps1 as a fallback
+    $expectedVhd = Join-Path $defaultVhdPath "$name.vhdx"
+    if ($expectedVhd -notin $vhdPaths) { $vhdPaths += $expectedVhd }
 
     if ($vm.State -ne 'Off') {
         Write-Ok "Stopping $name ..."
@@ -42,9 +50,12 @@ foreach ($name in $VmNames) {
     Write-Ok "Removing $name ..."
     Remove-VM -Name $name -Force
 
+    # Brief pause to let Hyper-V release file handles
+    Start-Sleep -Seconds 2
+
     # Delete associated VHDX files
     foreach ($vhd in $vhdPaths) {
-        if ($vhd -and (Test-Path $vhd)) {
+        if (Test-Path $vhd) {
             Remove-Item -Path $vhd -Force
             Write-Ok "Deleted $vhd"
         }
