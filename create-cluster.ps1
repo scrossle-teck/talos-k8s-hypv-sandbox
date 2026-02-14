@@ -41,20 +41,35 @@ function Write-Ok   { param([string]$Message) Write-Host "   $Message" -Foregrou
 function Write-Warn { param([string]$Message) Write-Host "   $Message" -ForegroundColor Yellow }
 
 function Wait-ForVmIp {
+    <#
+    .SYNOPSIS
+        Discovers a VM's IPv4 address by matching its MAC in the host ARP table.
+    .DESCRIPTION
+        Talos Linux does not include Hyper-V guest integration services, so
+        Get-VMNetworkAdapter.IPAddresses is always empty. Instead we look up the
+        VM's MAC address in the host's ARP table (Get-NetNeighbor), which is
+        populated once the VM completes its DHCP handshake on the Default Switch.
+    #>
     param(
         [string]$VMName,
         [int]$TimeoutSeconds = 180
     )
+
+    # Get the VM's MAC and normalise to the xx-xx-xx-xx-xx-xx format used by
+    # Get-NetNeighbor's LinkLayerAddress property.
+    $rawMac = (Get-VMNetworkAdapter -VMName $VMName).MacAddress
+    $mac = ($rawMac -replace '(.{2})', '$1-').TrimEnd('-')
+
     $elapsed = 0
     while ($elapsed -lt $TimeoutSeconds) {
-        $addrs = (Get-VMNetworkAdapter -VMName $VMName).IPAddresses |
-                 Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' }
-        if ($addrs) { return $addrs[0] }
+        $neighbour = Get-NetNeighbor -LinkLayerAddress $mac -ErrorAction SilentlyContinue |
+                     Where-Object { $_.AddressFamily -eq 'IPv4' -and $_.IPAddress -notlike '169.254.*' }
+        if ($neighbour) { return $neighbour.IPAddress }
         Start-Sleep -Seconds 5
         $elapsed += 5
         Write-Host "." -NoNewline
     }
-    throw "Timed out waiting for $VMName to obtain an IPv4 address."
+    throw "Timed out waiting for $VMName (MAC $mac) to obtain an IPv4 address."
 }
 
 function New-TalosVM {
