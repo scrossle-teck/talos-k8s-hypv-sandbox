@@ -32,7 +32,7 @@ $IsoPath      = Join-Path $IsoDir $IsoFilename
 $IsoUrl       = "https://github.com/siderolabs/talos/releases/download/$TalosVersion/$IsoFilename"
 
 $IpTimeout    = 180   # seconds to wait for VMs to get an IP
-$BootTimeout  = 300   # seconds to wait for nodes after config apply
+$BootTimeout  = 600   # seconds to wait for nodes after config apply
 
 # ── Helper functions ─────────────────────────────────────────────────────────
 
