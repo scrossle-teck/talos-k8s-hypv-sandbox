@@ -183,9 +183,26 @@ talosctl apply-config --insecure --nodes $WorkerIp --file (Join-Path $OutDir 'wo
 if ($LASTEXITCODE -ne 0) { throw 'Failed to apply worker config.' }
 Write-Ok "Applied worker.yaml to $WorkerIp"
 
-# ── Wait for nodes to install and reboot ─────────────────────────────────────
+# ── Eject ISO and reboot VMs from disk ───────────────────────────────────────
 
-Write-Step "Waiting for nodes to install Talos and reboot ($BootTimeout`s timeout)"
+Write-Step 'Waiting for Talos to install to disk before ejecting ISO'
+
+# Give the nodes time to write to disk after config apply
+Start-Sleep -Seconds 30
+Write-Ok 'Ejecting ISO media and restarting VMs to boot from disk'
+
+foreach ($name in @($CpName, $WorkerName)) {
+    # Remove the ISO from the DVD drive
+    Get-VMDvdDrive -VMName $name | Set-VMDvdDrive -Path $null
+    # Restart the VM so it boots from the VHDX
+    Stop-VM -Name $name -TurnOff -Force
+    Start-VM -Name $name
+    Write-Ok "$name restarted (booting from disk)"
+}
+
+# ── Wait for nodes to come up from disk ──────────────────────────────────────
+
+Write-Step "Waiting for nodes to boot from disk ($BootTimeout`s timeout)"
 
 $talosconfig = Join-Path $OutDir 'talosconfig'
 
