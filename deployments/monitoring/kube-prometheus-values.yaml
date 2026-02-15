@@ -1,0 +1,55 @@
+## kube-prometheus-stack Helm values — laptop-sized sandbox
+
+# Prometheus
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    scrapeInterval: 30s
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    # Single replica for dev
+    replicas: 1
+    storageSpec: {}
+
+# Grafana
+grafana:
+  enabled: true
+  adminUser: admin
+  adminPassword: admin
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+# Disable alertmanager — not needed for sandbox
+alertmanager:
+  enabled: false
+
+# Disable monitors that don't work on Talos (components aren't exposed)
+kubeProxy:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+# node-exporter needs privileged namespace
+nodeExporter:
+  enabled: true
+
+# Reduce operator resources
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
