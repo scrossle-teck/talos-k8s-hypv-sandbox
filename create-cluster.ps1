@@ -234,16 +234,12 @@ if ($LASTEXITCODE -ne 0) { throw 'talosctl bootstrap failed.' }
 Write-Ok 'Bootstrap initiated'
 
 # Wait for etcd and Kubernetes API
-Write-Warn 'Waiting for Kubernetes API to become ready (this may take a few minutes)...'
-$elapsed = 0
-while ($elapsed -lt $BootTimeout) {
-    $result = talosctl --talosconfig $talosconfig health --wait-timeout 10s 2>&1
-    if ($LASTEXITCODE -eq 0) { break }
-    Start-Sleep -Seconds 15
-    $elapsed += 15
-    Write-Host "." -NoNewline
-}
-Write-Ok "`nCluster is healthy"
+# Use a single health call with the full timeout so partial progress (etcd up,
+# kubelet up, etc.) is not discarded between retries.
+Write-Warn "Waiting for cluster to become healthy (${BootTimeout}s timeout)..."
+talosctl --talosconfig $talosconfig health --wait-timeout "${BootTimeout}s" 2>&1
+if ($LASTEXITCODE -ne 0) { throw 'Cluster did not become healthy within the timeout.' }
+Write-Ok 'Cluster is healthy'
 
 # ── Retrieve kubeconfig ──────────────────────────────────────────────────────
 
