@@ -8,6 +8,11 @@ ports:
     nodePort: 30080
   websecure:
     nodePort: 30443
+  traefik:
+    # Expose the dashboard/API entrypoint in the service for port-forward access
+    expose:
+      default: false
+    port: 8080
 
 # Enable the dashboard (access via port-forward)
 ingressRoute:
