@@ -59,21 +59,49 @@ function Wait-ForVmIp {
         [int]$TimeoutSeconds = 180
     )
 
-    # Get the VM's MAC and normalise to the xx-xx-xx-xx-xx-xx format used by
-    # Get-NetNeighbor's LinkLayerAddress property.
-    $rawMac = (Get-VMNetworkAdapter -VMName $VMName).MacAddress
+    # First, wait for the VM network adapter to have a valid MAC address
+    $macTimeout = 30
+    $macElapsed = 0
+    $rawMac = $null
+
+    Write-Host " (waiting for valid MAC" -NoNewline
+    while ($macElapsed -lt $macTimeout) {
+        $adapter = Get-VMNetworkAdapter -VMName $VMName -ErrorAction SilentlyContinue
+        if ($adapter -and $adapter.MacAddress -and $adapter.MacAddress -ne '000000000000') {
+            $rawMac = $adapter.MacAddress
+            break
+        }
+        Start-Sleep -Seconds 2
+        $macElapsed += 2
+        Write-Host "." -NoNewline
+    }
+
+    if (-not $rawMac -or $rawMac -eq '000000000000') {
+        throw "VM network adapter did not initialize with a valid MAC address"
+    }
+
     $mac = ($rawMac -replace '(.{2})', '$1-').TrimEnd('-')
+    Write-Host ") " -NoNewline
 
     $elapsed = 0
     while ($elapsed -lt $TimeoutSeconds) {
+        # Look for IPs in the Hyper-V Default Switch range (172.x.x.x) ONLY
         $neighbour = Get-NetNeighbor -LinkLayerAddress $mac -ErrorAction SilentlyContinue |
-                     Where-Object { $_.AddressFamily -eq 'IPv4' -and $_.IPAddress -notlike '169.254.*' }
+                     Where-Object {
+                         $_.AddressFamily -eq 'IPv4' -and
+                         $_.IPAddress -like '172.*' -and
+                         $_.IPAddress -notlike '169.254.*' -and
+                         $_.IPAddress -notmatch '\.\d+\.1$'  # Exclude gateway IPs (*.*.*.1)
+                     } |
+                     Select-Object -First 1
+
         if ($neighbour) { return $neighbour.IPAddress }
+
         Start-Sleep -Seconds 5
         $elapsed += 5
         Write-Host "." -NoNewline
     }
-    throw "Timed out waiting for $VMName (MAC $mac) to obtain an IPv4 address."
+    throw "Timed out waiting for $VMName (MAC $mac) to obtain an IPv4 address in the 172.x range (Default Switch)."
 }
 
 function New-TalosVM {
@@ -156,11 +184,11 @@ Write-Step 'Starting VMs and waiting for IP addresses'
 Start-VM -Name $CpName
 Start-VM -Name $WorkerName
 
-Write-Host "   Waiting for $CpName IP " -NoNewline
+Write-Host "   Waiting for $CpName IP" -NoNewline
 $CpIp = Wait-ForVmIp -VMName $CpName -TimeoutSeconds $IpTimeout
 Write-Ok "`n   $CpName -> $CpIp"
 
-Write-Host "   Waiting for $WorkerName IP " -NoNewline
+Write-Host "   Waiting for $WorkerName IP" -NoNewline
 $WorkerIp = Wait-ForVmIp -VMName $WorkerName -TimeoutSeconds $IpTimeout
 Write-Ok "`n   $WorkerName -> $WorkerIp"
 
