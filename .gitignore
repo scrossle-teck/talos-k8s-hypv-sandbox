@@ -2,3 +2,4 @@ _out/
 iso/
 *.kubeconfig
 c.cmd
+.claude/
