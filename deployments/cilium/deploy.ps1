@@ -4,8 +4,8 @@
     Deploys Cilium CNI on the Talos cluster, replacing Flannel and kube-proxy.
 .DESCRIPTION
     1. Patches all nodes to disable the default Flannel CNI and kube-proxy.
-    2. Nodes reboot automatically after the config change.
-    3. Installs Cilium via Helm while nodes are rebooting.
+    2. Removes existing Flannel and kube-proxy daemonsets.
+    3. Installs Cilium via Helm.
     4. Waits for all nodes to become Ready and Cilium pods to be Running.
 #>
 Set-StrictMode -Version Latest
@@ -49,8 +49,25 @@ foreach ($ip in $nodeIps) {
     if ($LASTEXITCODE -ne 0) { throw "Failed to patch node $ip" }
 }
 
-Write-Warn 'Waiting 30s for nodes to begin rebooting...'
-Start-Sleep -Seconds 30
+# ── Remove old Flannel and kube-proxy ─────────────────────────────────────────
+
+Write-Step 'Removing Flannel and kube-proxy daemonsets'
+
+$flannel = kubectl -n kube-system get daemonset kube-flannel --no-headers 2>&1
+if ($flannel -notmatch 'not found') {
+    kubectl -n kube-system delete daemonset kube-flannel
+    Write-Ok 'Flannel daemonset deleted'
+} else {
+    Write-Ok 'Flannel daemonset not found (already removed)'
+}
+
+$kubeProxy = kubectl -n kube-system get daemonset kube-proxy --no-headers 2>&1
+if ($kubeProxy -notmatch 'not found') {
+    kubectl -n kube-system delete daemonset kube-proxy
+    Write-Ok 'kube-proxy daemonset deleted'
+} else {
+    Write-Ok 'kube-proxy daemonset not found (already removed)'
+}
 
 # ── Install Cilium via Helm ───────────────────────────────────────────────────
 
