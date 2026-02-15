@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+##Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Removes a control plane or worker node from the Talos cluster.
@@ -151,11 +151,8 @@ if (-not $vm) {
 
 $nodeInfo = kubectl get node $k8sNodeName -o json 2>&1 | ConvertFrom-Json
 $labels = $nodeInfo.metadata.labels
-$isControlPlane = if ($labels.PSObject.Properties['node-role.kubernetes.io/control-plane']) {
-    $labels.'node-role.kubernetes.io/control-plane' -eq 'true'
-} else {
-    $false
-}
+# Check if control-plane label EXISTS (value is typically empty string, not "true")
+$isControlPlane = $null -ne ($labels.PSObject.Properties | Where-Object { $_.Name -eq 'node-role.kubernetes.io/control-plane' })
 $nodeType = if ($isControlPlane) { 'control-plane' } else { 'worker' }
 
 Write-Ok "Node type: $nodeType"
