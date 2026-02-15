@@ -84,6 +84,48 @@ After running the ingress deploy script (which updates your hosts file):
 
 > **Grafana login:** The default username and password are both `admin`. You'll be prompted to change the password on first login — you can skip this for a sandbox.
 
+## Scaling the Cluster
+
+### Add a Node
+
+Add control plane or worker nodes dynamically:
+
+```powershell
+# Add a worker node (auto-detects next number: worker-02, worker-03, etc.)
+.\scale-add-node.ps1 -NodeType worker
+
+# Add a control plane node for HA
+.\scale-add-node.ps1 -NodeType controlplane
+```
+
+The script will:
+
+- Auto-detect the next available node number
+- Create the Hyper-V VM with matching specs
+- Apply the appropriate Talos machine config
+- Wait for the node to join and become Ready
+
+### Remove a Node
+
+Remove a node gracefully:
+
+```powershell
+# Remove a specific node (with confirmation prompt)
+.\scale-remove-node.ps1 -NodeName talos-hypv-worker-02
+
+# Force removal without prompts
+.\scale-remove-node.ps1 -NodeName talos-hypv-cp-03 -Force
+```
+
+The script will:
+
+- Drain workloads (for worker nodes)
+- Delete the node from Kubernetes
+- Shut down and remove the VM
+- Delete the VHDX disk
+
+**Warning:** Removing control plane nodes can impact cluster availability. Maintain an odd number (1, 3, 5) of control plane nodes for quorum.
+
 ## Tear Down
 
 ```powershell
@@ -100,6 +142,8 @@ You may also want to remove the `# talos-sandbox-ingress` entries from your host
 ```
 ├── create-cluster.ps1              # Provision VMs and bootstrap Talos
 ├── destroy-cluster.ps1             # Tear down VMs and clean up
+├── scale-add-node.ps1              # Add control plane or worker nodes
+├── scale-remove-node.ps1           # Remove nodes gracefully
 ├── _out/                           # Generated configs (gitignored)
 │   ├── controlplane.yaml
 │   ├── worker.yaml
