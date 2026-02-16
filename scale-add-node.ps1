@@ -281,13 +281,12 @@ Write-Step 'Verifying node joined the cluster'
 
 Start-Sleep -Seconds 10   # Give node time to register with API server
 
+# Note: We can't use kubectl wait with VM name because Talos auto-generates
+# hostnames (e.g., talos-c6h-dm3 instead of talos-hypv-worker-02).
+# The node will appear in kubectl get nodes shortly.
 $env:KUBECONFIG = $kubeconfigPath
-kubectl wait --for=condition=Ready "node/$nodeName" --timeout=300s 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Warn "Node may not be ready yet. Check with: kubectl get nodes"
-} else {
-    Write-Ok "$nodeName is Ready"
-}
+$nodeCount = (kubectl get nodes -o json | ConvertFrom-Json).items.Count
+Write-Ok "Cluster now has $nodeCount nodes. Node is joining..."
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 
