@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+##Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Creates a minimal two-node Talos Linux cluster on Hyper-V.
@@ -234,11 +234,23 @@ foreach ($name in @($CpName, $WorkerName)) {
 
 # ── Wait for nodes to come up from disk ──────────────────────────────────────
 
-Write-Step "Waiting for nodes to boot from disk ($BootTimeout`s timeout)"
+Write-Step "Waiting for nodes to boot from disk and re-detecting IPs"
+
+# IMPORTANT: After reboot, VMs may get new IPs from DHCP (Hyper-V Default Switch)
+# Re-detect IPs to ensure we're using current addresses
+Write-Host "   Re-detecting $CpName IP" -NoNewline
+$CpIp = Wait-ForVmIp -VMName $CpName -TimeoutSeconds $IpTimeout
+Write-Ok "`n   $CpName -> $CpIp"
+
+Write-Host "   Re-detecting $WorkerName IP" -NoNewline
+$WorkerIp = Wait-ForVmIp -VMName $WorkerName -TimeoutSeconds $IpTimeout
+Write-Ok "`n   $WorkerName -> $WorkerIp"
+
+Write-Step "Configuring talosctl with updated IPs ($BootTimeout`s timeout)"
 
 $talosconfig = Join-Path $OutDir 'talosconfig'
 
-# Configure talosctl to talk to the control plane
+# Configure talosctl to talk to the control plane using the NEW IP
 talosctl --talosconfig $talosconfig config endpoint $CpIp
 talosctl --talosconfig $talosconfig config node $CpIp
 
