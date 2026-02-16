@@ -207,6 +207,16 @@ if (Get-VM -Name $nodeName -ErrorAction SilentlyContinue) {
     throw "VM '$nodeName' already exists."
 }
 
+# Check for orphaned VHDX files from previous runs (can happen after partial failures)
+$defaultVhdPath = (Get-VMHost).VirtualHardDiskPath
+$expectedVhdx = Join-Path $defaultVhdPath "$nodeName.vhdx"
+if (Test-Path $expectedVhdx) {
+    Write-Warn "Found orphaned VHDX file from previous run: $expectedVhdx"
+    Write-Warn "Removing orphaned file to allow VM creation..."
+    Remove-Item -Path $expectedVhdx -Force
+    Write-Ok "Orphaned VHDX removed"
+}
+
 New-TalosVM -Name $nodeName -SwitchName $VmSwitch -IsoPath $IsoPath `
             -Cpu $CpuCount -Memory $MemoryBytes -DiskSize $DiskSizeBytes
 
@@ -264,7 +274,7 @@ Write-Step "Waiting for $nodeName to boot from disk ($BootTimeout`s timeout)"
 
 $elapsed = 0
 while ($elapsed -lt $BootTimeout) {
-    $result = talosctl --talosconfig $talosconfig --nodes $nodeIp version 2>&1
+    talosctl --talosconfig $talosconfig --nodes $nodeIp version 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { break }
     Start-Sleep -Seconds 10
     $elapsed += 10

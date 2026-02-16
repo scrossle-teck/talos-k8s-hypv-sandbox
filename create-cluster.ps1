@@ -256,7 +256,7 @@ talosctl --talosconfig $talosconfig config node $CpIp
 
 $elapsed = 0
 while ($elapsed -lt $BootTimeout) {
-    $result = talosctl --talosconfig $talosconfig version 2>&1
+    talosctl --talosconfig $talosconfig version 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { break }
     Start-Sleep -Seconds 10
     $elapsed += 10
