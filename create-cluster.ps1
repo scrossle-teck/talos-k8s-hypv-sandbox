@@ -1,4 +1,4 @@
-##Requires -RunAsAdministrator
+#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Creates a minimal two-node Talos Linux cluster on Hyper-V.

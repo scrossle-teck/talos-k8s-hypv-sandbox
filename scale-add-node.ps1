@@ -1,4 +1,4 @@
-##Requires -RunAsAdministrator
+#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Adds a new control plane or worker node to the Talos cluster.

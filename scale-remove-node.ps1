@@ -1,4 +1,4 @@
-##Requires -RunAsAdministrator
+#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Removes a control plane or worker node from the Talos cluster.
