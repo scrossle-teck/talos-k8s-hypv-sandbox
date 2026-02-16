@@ -273,6 +273,10 @@ talosctl --talosconfig $talosconfig bootstrap
 if ($LASTEXITCODE -ne 0) { throw 'talosctl bootstrap failed.' }
 Write-Ok 'Bootstrap initiated'
 
+# Give the API server time to stabilize after bootstrap returns
+Write-Warn 'Waiting for API server to stabilize...'
+Start-Sleep -Seconds 30
+
 # Wait for etcd and Kubernetes API
 # Use a single health call with the full timeout so partial progress (etcd up,
 # kubelet up, etc.) is not discarded between retries.
