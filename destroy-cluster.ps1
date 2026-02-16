@@ -11,8 +11,14 @@ $ErrorActionPreference = 'Stop'
 
 # ── Configuration (must match create-cluster.ps1) ────────────────────────────
 $ClusterName = 'talos-hypv'
-$VmNames     = @("$ClusterName-cp-01", "$ClusterName-worker-01")
 $OutDir      = Join-Path $PSScriptRoot '_out'
+
+# Find all VMs belonging to this cluster (including scaled nodes)
+$VmNames = Get-VM -Name "$ClusterName-*" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
+if (-not $VmNames) {
+    Write-Host "No VMs found matching pattern '$ClusterName-*'" -ForegroundColor Yellow
+    exit 0
+}
 
 # ── Helper functions ─────────────────────────────────────────────────────────
 
