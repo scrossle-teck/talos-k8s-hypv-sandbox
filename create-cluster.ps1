@@ -11,19 +11,20 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # ── Configuration ────────────────────────────────────────────────────────────
-$ClusterName  = 'talos-hypv'
+$ClusterName = 'talos-hypv'
 $TalosVersion = 'v1.12.4'
-$VmSwitch     = 'Default Switch'
+$VmSwitch = 'Default Switch'
 
-$CpName       = "$ClusterName-cp-01"
-$WorkerName   = "$ClusterName-worker-01"
+$CpName = "$ClusterName-cp-01"
+$WorkerName = "$ClusterName-worker-01"
 
-$CpuCount     = 2
-$MemoryBytes  = 4GB
+$CpuCount = 2
+$MemoryBytes = 4GB
 $DiskSizeBytes = 20GB
 
-$IsoDir       = Join-Path $PSScriptRoot 'iso'
-$OutDir       = Join-Path $PSScriptRoot '_out'
+$IsoDir = Join-Path $PSScriptRoot 'iso'
+$OutDir = Join-Path $PSScriptRoot '_out'
+$RootCaPath = Join-Path $PSScriptRoot 'Root-CA1.cer'
 
 # Detect host architecture for correct ISO
 # Note: [RuntimeInformation]::OSArchitecture and $env:PROCESSOR_ARCHITECTURE both
@@ -31,18 +32,75 @@ $OutDir       = Join-Path $PSScriptRoot '_out'
 # OSArchitecture string is the only reliable source on Windows-on-ARM.
 $OsArch = (Get-CimInstance Win32_OperatingSystem).OSArchitecture
 $Arch = if ($OsArch -match 'ARM') { 'arm64' } else { 'amd64' }
-$IsoFilename  = "metal-$Arch.iso"
-$IsoPath      = Join-Path $IsoDir $IsoFilename
-$IsoUrl       = "https://github.com/siderolabs/talos/releases/download/$TalosVersion/$IsoFilename"
+$IsoFilename = "metal-$Arch.iso"
+$IsoPath = Join-Path $IsoDir $IsoFilename
+$IsoUrl = "https://github.com/siderolabs/talos/releases/download/$TalosVersion/$IsoFilename"
 
-$IpTimeout    = 180   # seconds to wait for VMs to get an IP
-$BootTimeout  = 600   # seconds to wait for nodes after config apply
+$IpTimeout = 180   # seconds to wait for VMs to get an IP
+$BootTimeout = 600   # seconds to wait for nodes after config apply
 
 # ── Helper functions ─────────────────────────────────────────────────────────
 
 function Write-Step { param([string]$Message) Write-Host "`n>> $Message" -ForegroundColor Cyan }
-function Write-Ok   { param([string]$Message) Write-Host "   $Message" -ForegroundColor Green }
+function Write-Ok { param([string]$Message) Write-Host "   $Message" -ForegroundColor Green }
 function Write-Warn { param([string]$Message) Write-Host "   $Message" -ForegroundColor Yellow }
+
+function Get-RootCaBase64 {
+    param([string]$Path)
+
+    $pemText = Get-Content -Path $Path -Raw
+    if (-not $pemText.Trim()) {
+        throw "Root CA file is empty: $Path"
+    }
+
+    return [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pemText))
+}
+
+function Add-RegistryCaToMachineConfig {
+    param(
+        [string]$ConfigPath,
+        [string]$CaBase64
+    )
+
+    $content = Get-Content -Path $ConfigPath -Raw
+
+    if ($content -match 'ghcr\.io:' -and $content -match 'registry\.k8s\.io:') {
+        Write-Ok "Root-CA1 already present in $(Split-Path -Leaf $ConfigPath)"
+        return
+    }
+
+    $block = "  registries:`r`n" +
+    "    config:`r`n" +
+    "      ghcr.io:`r`n" +
+    "        tls:`r`n" +
+    "          ca: $CaBase64`r`n" +
+    "      registry.k8s.io:`r`n" +
+    "        tls:`r`n" +
+    "          ca: $CaBase64"
+
+    if ($content -match '(?m)^  network:\s*\{\}\s*$') {
+        $content = [regex]::Replace(
+            $content,
+            '(?m)^  network:\s*\{\}\s*$',
+            { param($match) "$($match.Value)`r`n$block" },
+            1
+        )
+    }
+    elseif ($content -match '(?m)^machine:\s*$') {
+        $content = [regex]::Replace(
+            $content,
+            '(?m)^machine:\s*$',
+            { param($match) "$($match.Value)`r`n$block" },
+            1
+        )
+    }
+    else {
+        throw "Could not find insertion point for registries in $ConfigPath"
+    }
+
+    Set-Content -Path $ConfigPath -Value $content
+    Write-Ok "Injected Root-CA1 into $(Split-Path -Leaf $ConfigPath)"
+}
 
 function Wait-ForVmIp {
     <#
@@ -87,13 +145,13 @@ function Wait-ForVmIp {
     while ($elapsed -lt $TimeoutSeconds) {
         # Look for IPs in the Hyper-V Default Switch range (172.x.x.x) ONLY
         $neighbour = Get-NetNeighbor -LinkLayerAddress $mac -ErrorAction SilentlyContinue |
-                     Where-Object {
-                         $_.AddressFamily -eq 'IPv4' -and
-                         $_.IPAddress -like '172.*' -and
-                         $_.IPAddress -notlike '169.254.*' -and
-                         $_.IPAddress -notmatch '\.\d+\.1$'  # Exclude gateway IPs (*.*.*.1)
-                     } |
-                     Select-Object -First 1
+        Where-Object {
+            $_.AddressFamily -eq 'IPv4' -and
+            $_.IPAddress -like '172.*' -and
+            $_.IPAddress -notlike '169.254.*' -and
+            $_.IPAddress -notmatch '\.\d+\.1$'  # Exclude gateway IPs (*.*.*.1)
+        } |
+        Select-Object -First 1
 
         if ($neighbour) { return $neighbour.IPAddress }
 
@@ -119,11 +177,11 @@ function New-TalosVM {
 
     Write-Ok "Creating VM: $Name"
     New-VM -Name $Name `
-           -Generation 2 `
-           -MemoryStartupBytes $Memory `
-           -SwitchName $SwitchName `
-           -NewVHDPath $vhdPath `
-           -NewVHDSizeBytes $DiskSize | Out-Null
+        -Generation 2 `
+        -MemoryStartupBytes $Memory `
+        -SwitchName $SwitchName `
+        -NewVHDPath $vhdPath `
+        -NewVHDSizeBytes $DiskSize | Out-Null
 
     Set-VM -Name $Name -ProcessorCount $Cpu -CheckpointType Disabled
     Set-VMFirmware -VMName $Name -EnableSecureBoot Off
@@ -155,7 +213,8 @@ Write-Step 'Ensuring Talos ISO is available'
 
 if (Test-Path $IsoPath) {
     Write-Ok "ISO already exists at $IsoPath"
-} else {
+}
+else {
     New-Item -ItemType Directory -Path $IsoDir -Force | Out-Null
     Write-Ok "Downloading $IsoUrl ..."
     $ProgressPreference = 'SilentlyContinue'   # speed up Invoke-WebRequest
@@ -202,6 +261,16 @@ New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 talosctl gen config $ClusterName "https://${CpIp}:6443" --output-dir $OutDir
 if ($LASTEXITCODE -ne 0) { throw 'talosctl gen config failed.' }
 Write-Ok "Configs written to $OutDir"
+
+if (Test-Path $RootCaPath) {
+    Write-Step 'Applying Root-CA1 to registry TLS (optional)'
+    $caBase64 = Get-RootCaBase64 -Path $RootCaPath
+    Add-RegistryCaToMachineConfig -ConfigPath (Join-Path $OutDir 'controlplane.yaml') -CaBase64 $caBase64
+    Add-RegistryCaToMachineConfig -ConfigPath (Join-Path $OutDir 'worker.yaml') -CaBase64 $caBase64
+}
+else {
+    Write-Ok 'Root-CA1.cer not found; skipping registry CA injection'
+}
 
 # ── Apply configs ────────────────────────────────────────────────────────────
 

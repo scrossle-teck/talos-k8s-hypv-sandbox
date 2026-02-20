@@ -22,30 +22,88 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # ── Configuration ────────────────────────────────────────────────────────────
-$ClusterName  = 'talos-hypv'
-$VmSwitch     = 'Default Switch'
+$ClusterName = 'talos-hypv'
+$VmSwitch = 'Default Switch'
 
-$CpuCount     = 2
-$MemoryBytes  = 4GB
+$CpuCount = 2
+$MemoryBytes = 4GB
 $DiskSizeBytes = 20GB
 
-$IsoDir       = Join-Path $PSScriptRoot 'iso'
-$OutDir       = Join-Path $PSScriptRoot '_out'
+$IsoDir = Join-Path $PSScriptRoot 'iso'
+$OutDir = Join-Path $PSScriptRoot '_out'
+$RootCaPath = Join-Path $PSScriptRoot 'Root-CA1.cer'
 
 # Detect host architecture for correct ISO
 $OsArch = (Get-CimInstance Win32_OperatingSystem).OSArchitecture
 $Arch = if ($OsArch -match 'ARM') { 'arm64' } else { 'amd64' }
-$IsoFilename  = "metal-$Arch.iso"
-$IsoPath      = Join-Path $IsoDir $IsoFilename
+$IsoFilename = "metal-$Arch.iso"
+$IsoPath = Join-Path $IsoDir $IsoFilename
 
-$IpTimeout    = 180   # seconds to wait for VM to get an IP
-$BootTimeout  = 300   # seconds to wait for node after config apply
+$IpTimeout = 180   # seconds to wait for VM to get an IP
+$BootTimeout = 300   # seconds to wait for node after config apply
 
 # ── Helper functions ─────────────────────────────────────────────────────────
 
 function Write-Step { param([string]$Message) Write-Host "`n>> $Message" -ForegroundColor Cyan }
-function Write-Ok   { param([string]$Message) Write-Host "   $Message" -ForegroundColor Green }
+function Write-Ok { param([string]$Message) Write-Host "   $Message" -ForegroundColor Green }
 function Write-Warn { param([string]$Message) Write-Host "   $Message" -ForegroundColor Yellow }
+
+function Get-RootCaBase64 {
+    param([string]$Path)
+
+    $pemText = Get-Content -Path $Path -Raw
+    if (-not $pemText.Trim()) {
+        throw "Root CA file is empty: $Path"
+    }
+
+    return [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pemText))
+}
+
+function Add-RegistryCaToMachineConfig {
+    param(
+        [string]$ConfigPath,
+        [string]$CaBase64
+    )
+
+    $content = Get-Content -Path $ConfigPath -Raw
+
+    if ($content -match 'ghcr\.io:' -and $content -match 'registry\.k8s\.io:') {
+        Write-Ok "Root-CA1 already present in $(Split-Path -Leaf $ConfigPath)"
+        return
+    }
+
+    $block = "  registries:`r`n" +
+    "    config:`r`n" +
+    "      ghcr.io:`r`n" +
+    "        tls:`r`n" +
+    "          ca: $CaBase64`r`n" +
+    "      registry.k8s.io:`r`n" +
+    "        tls:`r`n" +
+    "          ca: $CaBase64"
+
+    if ($content -match '(?m)^  network:\s*\{\}\s*$') {
+        $content = [regex]::Replace(
+            $content,
+            '(?m)^  network:\s*\{\}\s*$',
+            { param($match) "$($match.Value)`r`n$block" },
+            1
+        )
+    }
+    elseif ($content -match '(?m)^machine:\s*$') {
+        $content = [regex]::Replace(
+            $content,
+            '(?m)^machine:\s*$',
+            { param($match) "$($match.Value)`r`n$block" },
+            1
+        )
+    }
+    else {
+        throw "Could not find insertion point for registries in $ConfigPath"
+    }
+
+    Set-Content -Path $ConfigPath -Value $content
+    Write-Ok "Injected Root-CA1 into $(Split-Path -Leaf $ConfigPath)"
+}
 
 function Wait-ForVmIp {
     param(
@@ -81,13 +139,13 @@ function Wait-ForVmIp {
     while ($elapsed -lt $TimeoutSeconds) {
         # Look for IPs in the Hyper-V Default Switch range (172.x.x.x) ONLY
         $neighbour = Get-NetNeighbor -LinkLayerAddress $mac -ErrorAction SilentlyContinue |
-                     Where-Object {
-                         $_.AddressFamily -eq 'IPv4' -and
-                         $_.IPAddress -like '172.*' -and
-                         $_.IPAddress -notlike '169.254.*' -and
-                         $_.IPAddress -notmatch '\.\d+\.1$'  # Exclude gateway IPs (*.*.*.1)
-                     } |
-                     Select-Object -First 1
+        Where-Object {
+            $_.AddressFamily -eq 'IPv4' -and
+            $_.IPAddress -like '172.*' -and
+            $_.IPAddress -notlike '169.254.*' -and
+            $_.IPAddress -notmatch '\.\d+\.1$'  # Exclude gateway IPs (*.*.*.1)
+        } |
+        Select-Object -First 1
 
         if ($neighbour) { return $neighbour.IPAddress }
 
@@ -113,11 +171,11 @@ function New-TalosVM {
 
     Write-Ok "Creating VM: $Name"
     New-VM -Name $Name `
-           -Generation 2 `
-           -MemoryStartupBytes $Memory `
-           -SwitchName $SwitchName `
-           -NewVHDPath $vhdPath `
-           -NewVHDSizeBytes $DiskSize | Out-Null
+        -Generation 2 `
+        -MemoryStartupBytes $Memory `
+        -SwitchName $SwitchName `
+        -NewVHDPath $vhdPath `
+        -NewVHDSizeBytes $DiskSize | Out-Null
 
     Set-VM -Name $Name -ProcessorCount $Cpu -CheckpointType Disabled
     Set-VMFirmware -VMName $Name -EnableSecureBoot Off
@@ -195,7 +253,8 @@ $talosConfigContent = Get-Content $talosconfig -Raw
 if ($talosConfigContent -match 'endpoints:\s*-\s*([0-9.]+)') {
     $cpEndpoint = $matches[1]
     Write-Ok "Control plane endpoint: $cpEndpoint"
-} else {
+}
+else {
     throw 'Could not determine control plane endpoint from talosconfig.'
 }
 
@@ -218,7 +277,7 @@ if (Test-Path $expectedVhdx) {
 }
 
 New-TalosVM -Name $nodeName -SwitchName $VmSwitch -IsoPath $IsoPath `
-            -Cpu $CpuCount -Memory $MemoryBytes -DiskSize $DiskSizeBytes
+    -Cpu $CpuCount -Memory $MemoryBytes -DiskSize $DiskSizeBytes
 
 Start-VM -Name $nodeName
 
@@ -241,6 +300,16 @@ Write-Step 'Applying machine configuration'
 
 $configFile = if ($NodeType -eq 'controlplane') { 'controlplane.yaml' } else { 'worker.yaml' }
 $configPath = Join-Path $OutDir $configFile
+
+if (Test-Path $RootCaPath) {
+    Write-Step 'Applying Root-CA1 to registry TLS (optional)'
+    $caBase64 = Get-RootCaBase64 -Path $RootCaPath
+    Add-RegistryCaToMachineConfig -ConfigPath (Join-Path $OutDir 'controlplane.yaml') -CaBase64 $caBase64
+    Add-RegistryCaToMachineConfig -ConfigPath (Join-Path $OutDir 'worker.yaml') -CaBase64 $caBase64
+}
+else {
+    Write-Ok 'Root-CA1.cer not found; skipping registry CA injection'
+}
 
 talosctl apply-config --insecure --nodes $nodeIp --file $configPath
 if ($LASTEXITCODE -ne 0) { throw "Failed to apply $configFile to $nodeIp" }
@@ -309,11 +378,13 @@ if ($NodeType -eq 'controlplane') {
     $etcdOutput = talosctl --talosconfig $talosconfig -n $cpEndpoint etcd members 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Warn "Could not query etcd members. Check manually with: talosctl -n $cpEndpoint etcd members"
-    } else {
+    }
+    else {
         # Parse etcd member list to see if new node appears
         if ($etcdOutput -match $nodeIp) {
             Write-Ok "Control plane node is an etcd member"
-        } else {
+        }
+        else {
             Write-Warn "Node not yet in etcd cluster. This may resolve automatically."
             Write-Warn "Check etcd membership with: talosctl --talosconfig $talosconfig -n $cpEndpoint etcd members"
         }
