@@ -3,3 +3,6 @@ iso/
 *.kubeconfig
 c.cmd
 .claude/
+Root-CA1.*
+.vscode/*
+
