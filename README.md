@@ -26,7 +26,7 @@ Built for local development and learning on Windows (including ARM64/Windows-on-
 ### Platform Stack
 
 | Component | Purpose | Version |
-| ----------- | --------- | --------- |
+| --------- | ------- | ------- |
 | **Cilium** | CNI + kube-proxy replacement (eBPF) | Latest via Helm |
 | **Hubble** | Network observability (part of Cilium) | Bundled with Cilium |
 | **MetalLB** | LoadBalancer IP allocation (L2 mode) | Latest via Helm |
@@ -79,7 +79,7 @@ Run each script in order from an elevated PowerShell prompt:
 After running the ingress deploy script (which updates your hosts file):
 
 | URL | Service | Credentials |
-| ----- | --------- | ------------- |
+| --- | ------- | ----------- |
 | `http://grafana.talos.local` | Grafana | admin / admin |
 | `http://prometheus.talos.local` | Prometheus | — |
 | `http://hubble.talos.local` | Hubble UI | — |
