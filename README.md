@@ -1,12 +1,14 @@
 # Talos K8s Hyper-V Sandbox
 
-A minimal two-node Kubernetes cluster running [Talos Linux](https://www.talos.dev/) on Hyper-V, with a production-style platform stack: Cilium CNI, Traefik ingress, MetalLB load balancer, and Prometheus/Grafana monitoring.
+A minimal two-node Kubernetes cluster running [Talos Linux](https://www.talos.dev/)
+on Hyper-V, with a production-style platform stack: Cilium CNI, Traefik
+ingress, MetalLB load balancer, and Prometheus/Grafana monitoring.
 
 Built for local development and learning on Windows (including ARM64/Windows-on-ARM).
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  Windows Host (Hyper-V)                                 │
 │                                                         │
@@ -24,7 +26,7 @@ Built for local development and learning on Windows (including ARM64/Windows-on-
 ### Platform Stack
 
 | Component | Purpose | Version |
-|-----------|---------|---------|
+| ----------- | --------- | --------- |
 | **Cilium** | CNI + kube-proxy replacement (eBPF) | Latest via Helm |
 | **Hubble** | Network observability (part of Cilium) | Bundled with Cilium |
 | **MetalLB** | LoadBalancer IP allocation (L2 mode) | Latest via Helm |
@@ -48,7 +50,8 @@ Built for local development and learning on Windows (including ARM64/Windows-on-
 .\create-cluster.ps1
 ```
 
-This downloads the Talos ISO, creates two VMs, applies configs, bootstraps the cluster, and saves credentials to `_out/`.
+This downloads the Talos ISO, creates two VMs, applies configs, bootstraps the
+cluster, and saves credentials to `_out/`.
 
 ### 2. Deploy the platform stack
 
@@ -76,13 +79,15 @@ Run each script in order from an elevated PowerShell prompt:
 After running the ingress deploy script (which updates your hosts file):
 
 | URL | Service | Credentials |
-|-----|---------|-------------|
+| ----- | --------- | ------------- |
 | `http://grafana.talos.local` | Grafana | admin / admin |
 | `http://prometheus.talos.local` | Prometheus | — |
 | `http://hubble.talos.local` | Hubble UI | — |
 | `http://traefik.talos.local/dashboard/` | Traefik | — |
 
-> **Grafana login:** The default username and password are both `admin`. You'll be prompted to change the password on first login — you can skip this for a sandbox.
+> **Grafana login:** The default username and password are both `admin`. You'll
+> be prompted to change the password on first login — you can skip this for a
+> sandbox.
 
 ## Scaling the Cluster
 
@@ -107,7 +112,8 @@ The script will:
 - Wait for the node to join and become Ready
 - Verify etcd membership (for control-plane nodes)
 
-**Note:** Talos auto-generates hostnames (e.g., `talos-c6h-dm3`), not VM names. Use `kubectl get nodes` to see actual node names.
+**Note:** Talos auto-generates hostnames (e.g., `talos-c6h-dm3`), not VM names.
+Use `kubectl get nodes` to see actual node names.
 
 ### Remove a Node
 
@@ -148,11 +154,12 @@ The script will:
 
 This stops and deletes both VMs, removes their VHDX disks, and cleans up `_out/`.
 
-You may also want to remove the `# talos-sandbox-ingress` entries from your hosts file (`C:\Windows\System32\drivers\etc\hosts`).
+You may also want to remove the `# talos-sandbox-ingress` entries from your
+hosts file (`C:\Windows\System32\drivers\etc\hosts`).
 
 ## Project Structure
 
-```
+```text
 ├── create-cluster.ps1              # Provision VMs and bootstrap Talos
 ├── destroy-cluster.ps1             # Tear down VMs and clean up
 ├── scale-add-node.ps1              # Add control plane or worker nodes
@@ -188,7 +195,8 @@ You may also want to remove the `# talos-sandbox-ingress` entries from your host
 
 **Symptom:** Node creation fails with "The file exists" error for a VHDX file.
 
-**Cause:** Previous VM was deleted without removing its disk, or a partial failure left orphaned files.
+**Cause:** Previous VM was deleted without removing its disk, or a partial
+failure left orphaned files.
 
 **Solution:**
 
@@ -252,9 +260,26 @@ kubectl get nodes -l node-role.kubernetes.io/control-plane
 
 ## Notes
 
+### Root-CA1 for Registry TLS (Optional)
+
+If your network performs TLS interception, Talos image pulls from `ghcr.io` or
+`registry.k8s.io` may fail with x509 errors. To trust your corporate root CA,
+drop a Base-64 encoded X.509 export named `Root-CA1.cer` in the repo root. When
+that file exists, `create-cluster.ps1` and `scale-add-node.ps1` automatically
+inject it into the generated `controlplane.yaml` and `worker.yaml` under
+`machine.registries.config` for those registries.
+
+Quick flow:
+
+1. Export your corporate root CA as **Base-64 encoded X.509 (.CER)**
+    (Windows: `certlm.msc` → Trusted Root → Export).
+2. Save it as `Root-CA1.cer` in the repo root.
+3. Re-run `.\create-cluster.ps1` or `.\scale-add-node.ps1` to regenerate/patch configs.
+
 ### Hyper-V Default Switch
 
-The Default Switch uses NAT with DHCP, and the subnet changes on host reboot. After a reboot:
+The Default Switch uses NAT with DHCP, and the subnet changes on host reboot.
+After a reboot:
 
 1. Node IPs will change (DHCP reassignment)
 2. MetalLB pool range will be invalid
@@ -274,16 +299,20 @@ Cilium requires Talos-specific Helm values because Talos is immutable:
 
 ### Monitoring on Talos
 
-Several kube-prometheus-stack monitors are disabled because Talos doesn't expose those components:
+Several kube-prometheus-stack monitors are disabled because Talos doesn't
+expose those components:
 
 - `kubeProxy` — replaced by Cilium
 - `kubeScheduler`, `kubeControllerManager`, `kubeEtcd` — not accessible on Talos
 
-The `monitoring` namespace requires the `pod-security.kubernetes.io/enforce=privileged` label for node-exporter to function.
+The `monitoring` namespace requires the
+`pod-security.kubernetes.io/enforce=privileged` label for node-exporter to
+function.
 
 ## Production Readiness
 
-This cluster management system has been validated through autonomous lifecycle testing:
+This cluster management system has been validated through autonomous lifecycle
+testing:
 
 ✅ **Tested Operations:**
 
@@ -308,4 +337,5 @@ This cluster management system has been validated through autonomous lifecycle t
 - Worker drain before removal
 - Proper etcd quorum management
 
-**Validation Results:** ~15 minutes for full lifecycle test (create → scale up → scale down → destroy) on ARM64 Windows, zero manual intervention required.
+**Validation Results:** ~15 minutes for full lifecycle test (create → scale up →
+scale down → destroy) on ARM64 Windows, zero manual intervention required.
